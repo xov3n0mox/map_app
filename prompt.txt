@@ -1,0 +1,4 @@
+hi, i wanna create a gps app that alerts riders of the overspeeding vehicles or any other such danger in their vicinity . i am thinking of creating a web app or a webpage for a minimum viable product that extracts gps speed and location data with atleast 20 mtr accuracy and run processing to figure whether they are speeding or not, and then decide whther or not to make their location visible to all riders and drivers in a 1km or so radius( which depends from place to place), in this mvp i must be able to use 2 different devices to communicate and simulate a virtual env...
+
+
+mind it, i am a student and i am looking forward to learn making webpages and servers as we go along this project. next phases may include creating a mobile app and maybe making it functioning for android auto and apple car play, however thats for the future
