@@ -1,0 +1,180 @@
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>SafeRide</title>
+
+    <!-- Leaflet CSS -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+
+      #map {
+        height: 500px;
+        width: 100%;
+      }
+
+      button {
+        padding: 10px 15px;
+        margin: 5px;
+        cursor: pointer;
+      }
+
+      #status,
+      #simulation {
+        white-space: pre-line;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>SafeRide</h1>
+    <p>GPS Safety Prototype</p>
+
+    <!-- ========================= -->
+    <!-- GPS -->
+    <!-- ========================= -->
+
+    <button onclick="getLocation()">Get My Location</button>
+
+    <p id="status">Waiting...</p>
+
+    <!-- ========================= -->
+    <!-- SIMULATION -->
+    <!-- ========================= -->
+
+    <button onclick="simulateMovement()">Start Simulation</button>
+
+    <p id="simulation">Simulation not started.</p>
+
+    <!-- ========================= -->
+    <!-- MAP -->
+    <!-- ========================= -->
+
+    <div id="map"></div>
+
+    <!-- Leaflet JavaScript -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+      // ==========================================
+      // GPS
+      // ==========================================
+
+      function getLocation() {
+        document.getElementById("status").innerText =
+          "Getting your location...";
+
+        navigator.geolocation.getCurrentPosition(success, error);
+      }
+
+      function success(position) {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+        const accuracy = position.coords.accuracy;
+        const speed = position.coords.speed;
+        const heading = position.coords.heading;
+
+        document.getElementById("status").innerText =
+          "Latitude: " +
+          latitude +
+          "\nLongitude: " +
+          longitude +
+          "\nAccuracy: " +
+          accuracy +
+          " m" +
+          "\nSpeed: " +
+          speed +
+          " m/s" +
+          "\nHeading: " +
+          heading;
+      }
+
+      function error(error) {
+        document.getElementById("status").innerText =
+          "Could not get location: " + error.message;
+      }
+
+      // ==========================================
+      // SIMULATION
+      // ==========================================
+
+      let latitude = 26.9124;
+      let longitude = 75.7873;
+
+      let simulationRunning = false;
+
+      let vehicleSpeed = 60; // km/h
+      let speedLimit = 50; // km/h
+
+      // ==========================================
+      // MAP
+      // ==========================================
+
+      const map = L.map("map").setView([latitude, longitude], 15);
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(map);
+
+      // ==========================================
+      // SIMULATED VEHICLE MARKER
+      // ==========================================
+
+      let vehicleMarker = L.marker([latitude, longitude]).addTo(map);
+
+      // ==========================================
+      // START SIMULATION
+      // ==========================================
+
+      function simulateMovement() {
+        if (simulationRunning) {
+          return;
+        }
+
+        simulationRunning = true;
+
+        setInterval(() => {
+          // Move vehicle east
+          const speedMetersPerSecond = vehicleSpeed / 3.6;
+
+          const distanceMeters = speedMetersPerSecond * 1;
+
+          const longitudeChange = distanceMeters / 111320;
+
+          longitude += longitudeChange;
+
+          // Move marker
+          vehicleMarker.setLatLng([latitude, longitude]);
+
+          // Update information
+          document.getElementById("simulation").innerText =
+            "Simulated vehicle" +
+            "\nSpeed: " +
+            vehicleSpeed +
+            " km/h" +
+            "\nLatitude: " +
+            latitude +
+            "\nLongitude: " +
+            longitude;
+            if (vehicleSpeed > speedLimit) {
+    document.getElementById("simulation").innerText +=
+        "\n⚠️ OVERSPEEDING";
+}
+        }, 1000);
+
+      }
+    </script>
+  </body>
+</html>
+```
