@@ -11,6 +11,8 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "socket": "^1.4.0",
+    "socket.io": "^4.8.4"
   }
 }
