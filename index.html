@@ -41,6 +41,18 @@
       position: relative;
     }
 
+    #location-warning-banner {
+      display: none;
+      background-color: #ff9800;
+      color: #000;
+      padding: 8px 15px;
+      text-align: center;
+      font-weight: bold;
+      font-size: 13px;
+      z-index: 1000;
+      position: relative;
+    }
+
     @keyframes blink {
       50% { opacity: 0.5; }
     }
@@ -54,6 +66,29 @@
       font-weight: bold;
       color: #00ffcc;
     }
+
+    /* Recenter Map Control Button */
+    .recenter-btn {
+      background-color: #ffffff;
+      border: 2px solid rgba(0,0,0,0.2);
+      border-radius: 4px;
+      padding: 6px 12px;
+      font-weight: bold;
+      font-size: 12px;
+      cursor: pointer;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    }
+
+    .recenter-btn:hover {
+      background-color: #f4f4f4;
+    }
+
+    /* Custom Color-Coded Marker Styling */
+    .custom-svg-marker {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
   </style>
 </head>
 <body>
@@ -63,8 +98,12 @@
     <div>Speed: <span id="speed-text" class="badge">0</span> km/h</div>
   </div>
 
+  <div id="location-warning-banner">
+    ⚠️ LOCATION DISABLED: Enable browser location permissions to transmit your real-time vehicle position.
+  </div>
+
   <div id="alert-banner">
-    ⚠️ WARNING: SPEED LIMIT EXCEEDED OR HAZARD NEARBY!
+    ⚠️ WARNING: HAZARD DETECTED NEARBY!
   </div>
 
   <div id="map"></div>
@@ -74,25 +113,11 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
-    // 1. Socket.io Connection
+    const SPEED_LIMIT_KMH = 40;
     const socket = io({ transports: ["websocket", "polling"] });
 
-    const statusText = document.getElementById("connection-status");
-    const speedText = document.getElementById("speed-text");
-    const alertBanner = document.getElementById("alert-banner");
-
-    socket.on("connect", () => {
-      statusText.innerText = `Connected (${socket.id.slice(0, 5)})`;
-      statusText.style.color = "#00ffcc";
-    });
-
-    socket.on("disconnect", () => {
-      statusText.innerText = "Disconnected";
-      statusText.style.color = "#ff4d4d";
-    });
-
-    // 2. Leaflet Map Initialization
-    const map = L.map('map').setView([20.5937, 78.9629], 5); // Default center (India)
+    // Leaflet Map Initialization
+    const map = L.map('map').setView([28.6139, 77.2090], 15);
 
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -100,83 +125,166 @@
     }).addTo(map);
 
     let myMarker = null;
+    let myCoordinates = null;
     const otherVehicleMarkers = {};
-    const SPEED_LIMIT_KMH = 40;
 
-    // Helper: Haversine Formula for Distance (meters)
-    function getDistanceInMeters(lat1 = 0, lon1 = 0, lat2 = 0, lon2 = 0) {
-      const R = 6371e3;
-      const φ1 = lat1 * Math.PI / 180;
-      const φ2 = lat2 * Math.PI / 180;
-      const Δφ = (lat2 - lat1) * Math.PI / 180;
-      const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                Math.cos(φ1) * Math.cos(φ2) *
-                Math.sin(Δλ/2) * Math.sin(Δλ/2);
-                
-      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    // Helper: Dynamic SVG Icon Generator (Green, Yellow, Red)
+    function createVehicleIcon(color = "#28a745") {
+      const svgIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32">
+          <circle cx="12" cy="12" r="10" fill="${color}" stroke="#ffffff" stroke-width="2"/>
+          <path d="M12 2L15 8H9L12 2Z" fill="#ffffff"/>
+        </svg>`;
+      
+      return L.divIcon({
+        className: "custom-svg-marker",
+        html: svgIcon,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
+      });
     }
 
-    // 3. HTML5 Geolocation Tracking
+    // Helper: Pick Marker Color based on vehicle telemetry
+    function getVehicleColor(v) {
+      if (v.isProximityHazard) return "#dc3545"; // Red (Hazard)
+      if (v.isOverspeeding) return "#ffc107";     // Yellow (Overspeeding)
+      return "#28a745";                           // Green (Normal)
+    }
+
+    // Add Recenter Control Button to Leaflet UI
+    const RecenterControl = L.Control.extend({
+      options: { position: 'topright' },
+      onAdd: function() {
+        const container = L.DomUtil.create('button', 'recenter-btn');
+        container.innerHTML = "🎯 Recenter Map";
+        container.onclick = function() {
+          if (myCoordinates) {
+            map.setView([myCoordinates.lat, myCoordinates.lng], 16);
+          } else {
+            alert("Location data is currently unavailable.");
+          }
+        };
+        return container;
+      }
+    });
+    map.addControl(new RecenterControl());
+
+    // Socket Connection Status
+    socket.on("connect", () => {
+      const statusText = document.getElementById("connection-status");
+      if (statusText) {
+        statusText.innerText = `Connected (${socket.id.slice(0, 5)})`;
+        statusText.style.color = "#00ffcc";
+      }
+    });
+
+    socket.on("disconnect", () => {
+      const statusText = document.getElementById("connection-status");
+      if (statusText) {
+        statusText.innerText = "Disconnected";
+        statusText.style.color = "#ff4d4d";
+      }
+    });
+
+    // Geolocation API & Error Warning Logic
+    const locWarningBanner = document.getElementById("location-warning-banner");
+
     if ("geolocation" in navigator) {
       navigator.geolocation.watchPosition(
         (position) => {
+          locWarningBanner.style.display = "none";
+
           const lat = position.coords.latitude;
           const lng = position.coords.longitude;
           const speed = position.coords.speed ? Math.round(position.coords.speed * 3.6) : 0;
-          const isOverspeeding = speed > SPEED_LIMIT_KMH;
 
-          speedText.innerText = speed;
+          myCoordinates = { lat, lng };
 
-          // Alert banner toggling
-          if (isOverspeeding) {
-            alertBanner.style.display = "block";
-          } else {
-            alertBanner.style.display = "none";
-          }
+          const speedText = document.getElementById("speed-text");
+          if (speedText) speedText.innerText = speed;
 
-          // Move current user marker
           if (myMarker) {
             myMarker.setLatLng([lat, lng]);
           } else {
-            myMarker = L.marker([lat, lng]).addTo(map).bindPopup("Your Vehicle").openPopup();
-            map.setView([lat, lng], 15);
+            myMarker = L.marker([lat, lng], { icon: createVehicleIcon("#28a745") })
+              .addTo(map)
+              .bindPopup("Your Vehicle");
+            map.setView([lat, lng], 16);
           }
 
-          // Emit telemetry to Node.js backend
           socket.emit("update_location", {
             lat,
             lng,
             speed,
-            isOverspeeding
+            isOverspeeding: speed > SPEED_LIMIT_KMH
           });
         },
-        (error) => console.error("GPS Error:", error.message),
-        { enableHighAccuracy: true }
+        (error) => {
+          console.warn("Geolocation Warning:", error.message);
+          locWarningBanner.style.display = "block";
+          locWarningBanner.innerText = `⚠️ LOCATION ACCESS ERROR: ${error.message.toUpperCase()} (Enable location in browser settings)`;
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     } else {
-      alert("Geolocation is not supported by your browser.");
+      locWarningBanner.style.display = "block";
+      locWarningBanner.innerText = "⚠️ GEOLOCATION UNSUPPORTED: Your browser does not support GPS tracking.";
     }
 
-    // 4. Stream Active Vehicles from Backend
+    // Stream Active Vehicles & Dynamic UI Updates
     socket.on("vehicles_stream", (vehicles) => {
+      const alertBanner = document.getElementById("alert-banner");
+      let proximityHazardFound = false;
+      let overspeedHazardFound = false;
+      let hazardDistance = null;
+
       Object.keys(vehicles).forEach((id) => {
-        // Skip rendering our own socket connection via stream
-        if (id === socket.id) return;
+        const v = vehicles[id];
+        if (v.isProximityHazard) {
+          proximityHazardFound = true;
+          hazardDistance = v.nearestVehicleDist;
+        }
+        if (v.isOverspeeding) {
+          overspeedHazardFound = true;
+        }
+      });
+
+      // Update Top Warning Banner
+      if (alertBanner) {
+        if (proximityHazardFound) {
+          alertBanner.innerText = `⚠️ HAZARD WARNING: VEHICLE WITHIN ${hazardDistance || 50} METERS!`;
+          alertBanner.style.display = "block";
+        } else if (overspeedHazardFound) {
+          alertBanner.innerText = `⚠️ SPEED WARNING: EXCEEDING ${SPEED_LIMIT_KMH} KM/H!`;
+          alertBanner.style.display = "block";
+        } else {
+          alertBanner.style.display = "none";
+        }
+      }
+
+      // Render & Color-Code Markers for Streamed Vehicles
+      Object.keys(vehicles).forEach((id) => {
+        if (id === socket.id && myMarker) {
+          // Update local marker icon color if hazard occurs
+          myMarker.setIcon(createVehicleIcon(getVehicleColor(vehicles[id])));
+          return;
+        }
 
         const v = vehicles[id];
+        const iconColor = getVehicleColor(v);
 
         if (otherVehicleMarkers[id]) {
           otherVehicleMarkers[id].setLatLng([v.lat, v.lng]);
+          otherVehicleMarkers[id].setIcon(createVehicleIcon(iconColor));
+          otherVehicleMarkers[id].setPopupContent(`Vehicle ${id.slice(0, 4)} | ${v.speed} km/h`);
         } else {
-          otherVehicleMarkers[id] = L.marker([v.lat, v.lng])
+          otherVehicleMarkers[id] = L.marker([v.lat, v.lng], { icon: createVehicleIcon(iconColor) })
             .addTo(map)
             .bindPopup(`Vehicle ${id.slice(0, 4)} | ${v.speed} km/h`);
         }
       });
 
-      // Remove disconnected vehicle markers
+      // Cleanup Disconnected Vehicles
       Object.keys(otherVehicleMarkers).forEach((id) => {
         if (!vehicles[id]) {
           map.removeLayer(otherVehicleMarkers[id]);

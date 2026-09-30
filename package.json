@@ -13,6 +13,7 @@
   "dependencies": {
     "express": "^5.2.1",
     "socket": "^1.4.0",
-    "socket.io": "^4.8.4"
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4"
   }
 }
